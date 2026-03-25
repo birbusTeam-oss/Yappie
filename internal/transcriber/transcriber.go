@@ -28,21 +28,38 @@ type Transcriber struct {
 // next to the quill binary, then in PATH.
 func New(whisperPath, modelPath string, removeFillers bool) *Transcriber {
 	if whisperPath == "" {
-		// Look next to our binary first
-		exe, _ := os.Executable()
-		if exe != "" {
+		// Look next to our binary first (use absolute resolved path)
+		exe, err := os.Executable()
+		if err == nil {
+			exe, _ = filepath.EvalSymlinks(exe)
 			candidate := filepath.Join(filepath.Dir(exe), "whisper.exe")
-			if _, err := os.Stat(candidate); err == nil {
-				whisperPath = candidate
+			absCandidate, _ := filepath.Abs(candidate)
+			if _, err := os.Stat(absCandidate); err == nil {
+				whisperPath = absCandidate
 			}
 		}
 		if whisperPath == "" {
-			whisperPath = "whisper" // hope it's in PATH
+			// Try current working directory
+			if cwd, err := os.Getwd(); err == nil {
+				candidate := filepath.Join(cwd, "whisper.exe")
+				if _, err := os.Stat(candidate); err == nil {
+					whisperPath = candidate
+				}
+			}
+		}
+		if whisperPath == "" {
+			// Last resort: look in PATH
+			if found, err := exec.LookPath("whisper.exe"); err == nil {
+				whisperPath = found
+			} else {
+				whisperPath = "whisper.exe"
+			}
 		}
 	}
 	if modelPath == "" {
-		exe, _ := os.Executable()
-		if exe != "" {
+		exe, err2 := os.Executable()
+		if err2 == nil {
+			exe, _ = filepath.EvalSymlinks(exe)
 			// Look for models/ dir next to binary
 			modelsDir := filepath.Join(filepath.Dir(exe), "models")
 			candidate := filepath.Join(modelsDir, "ggml-base.en.bin")
