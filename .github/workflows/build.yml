@@ -30,6 +30,23 @@ jobs:
           go build -ldflags="-H windowsgui -s -w" -o quill.exe ./cmd/quill
           dir quill.exe
 
+      - name: Download whisper.cpp
+        shell: pwsh
+        run: |
+          mkdir whisper
+          Invoke-WebRequest -Uri "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.4/whisper-bin-x64.zip" -OutFile whisper-bin.zip
+          Expand-Archive whisper-bin.zip -DestinationPath whisper-extract
+          Copy-Item whisper-extract/Release/whisper-cli.exe whisper/
+          Copy-Item whisper-extract/Release/ggml-base.dll whisper/
+          Copy-Item whisper-extract/Release/ggml-cpu.dll whisper/
+          Copy-Item whisper-extract/Release/ggml.dll whisper/
+          Copy-Item whisper-extract/Release/whisper.dll whisper/
+
+      - name: Download whisper model
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin" -OutFile whisper/ggml-base.en.bin
+
       - name: Install NSIS
         run: choco install nsis -y --no-progress
 
@@ -45,13 +62,6 @@ jobs:
           path: Quill-Setup.exe
           retention-days: 30
 
-      - name: Upload portable exe
-        uses: actions/upload-artifact@v4
-        with:
-          name: quill-portable
-          path: quill.exe
-          retention-days: 30
-
   release:
     name: Publish Release
     needs: build-windows
@@ -64,19 +74,27 @@ jobs:
         with:
           name: Quill-Setup
 
-      - uses: actions/download-artifact@v4
-        with:
-          name: quill-portable
-
       - name: Publish release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v1.0.0
           name: Quill v1.0.0
           make_latest: true
-          files: |
-            Quill-Setup.exe
-            quill.exe
+          body: |
+            ## Quill v1.0.0
+
+            Offline voice dictation for Windows. Hold Ctrl+Alt, speak, text appears.
+
+            **100% offline. Zero cloud. Zero API keys. One installer.**
+
+            ### Download & Install
+            1. Download **Quill-Setup.exe** below
+            2. Run the installer
+            3. Hold **Ctrl+Alt** to dictate
+
+            Everything included — Quill + whisper engine + English model.
+            No extra downloads needed.
+          files: Quill-Setup.exe
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

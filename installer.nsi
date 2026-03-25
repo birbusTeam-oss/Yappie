@@ -28,10 +28,27 @@ SetCompressor lzma
 
 Section "Install"
     SetOutPath "$INSTDIR"
+    
+    ; Main app
     File "${APP_EXE}"
+    
+    ; Whisper engine + DLLs
+    File "whisper\whisper-cli.exe"
+    Rename "$INSTDIR\whisper-cli.exe" "$INSTDIR\whisper.exe"
+    File "whisper\ggml-base.dll"
+    File "whisper\ggml-cpu.dll"
+    File "whisper\ggml.dll"
+    File "whisper\whisper.dll"
+    
+    ; Model
+    File "whisper\ggml-base.en.bin"
+    
+    ; Shortcuts
     CreateDirectory "$SMPROGRAMS\${APP_NAME}"
     CreateShortCut "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" "$INSTDIR\${APP_EXE}"
     CreateShortCut "$SMPROGRAMS\${APP_NAME}\Uninstall.lnk" "$INSTDIR\Uninstall.exe"
+    
+    ; Uninstaller
     WriteUninstaller "$INSTDIR\Uninstall.exe"
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}" "DisplayName" "${APP_NAME}"
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
@@ -41,10 +58,17 @@ SectionEnd
 
 Section "Uninstall"
     Delete "$INSTDIR\${APP_EXE}"
+    Delete "$INSTDIR\whisper.exe"
+    Delete "$INSTDIR\ggml-base.dll"
+    Delete "$INSTDIR\ggml-cpu.dll"
+    Delete "$INSTDIR\ggml.dll"
+    Delete "$INSTDIR\whisper.dll"
+    Delete "$INSTDIR\ggml-base.en.bin"
     Delete "$INSTDIR\Uninstall.exe"
     Delete "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk"
     Delete "$SMPROGRAMS\${APP_NAME}\Uninstall.lnk"
     RMDir "$SMPROGRAMS\${APP_NAME}"
+    RMDir /r "$APPDATA\Quill"
     RMDir "$INSTDIR"
     DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}"
 SectionEnd
