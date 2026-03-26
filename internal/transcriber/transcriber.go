@@ -28,54 +28,57 @@ type Transcriber struct {
 // New creates a transcriber. If whisperPath is empty, it looks for whisper.exe
 // next to the quill binary, then in PATH.
 func New(whisperPath, modelPath string, removeFillers bool) *Transcriber {
-	if whisperPath == "" {
-		// Look next to our binary first (use absolute resolved path)
-		exe, err := os.Executable()
-		log.Printf("[whisper] os.Executable() = %q (err=%v)", exe, err)
-		if err == nil {
-			exe, _ = filepath.EvalSymlinks(exe)
-			candidate := filepath.Join(filepath.Dir(exe), "whisper.exe")
-			absCandidate, _ := filepath.Abs(candidate)
-			log.Printf("[whisper] Checking: %s", absCandidate)
-			if _, err := os.Stat(absCandidate); err == nil {
-				whisperPath = absCandidate
-				log.Printf("[whisper] Found next to binary: %s", whisperPath)
-			} else {
-				log.Printf("[whisper] Not found: %v", err)
-			}
-		}
-		if whisperPath == "" {
-			// Try current working directory
-			if cwd, err := os.Getwd(); err == nil {
-				candidate := filepath.Join(cwd, "whisper.exe")
-				log.Printf("[whisper] Checking CWD: %s", candidate)
-				if _, err := os.Stat(candidate); err == nil {
-					whisperPath = candidate
-					log.Printf("[whisper] Found in CWD: %s", whisperPath)
-				}
-			}
-		}
-		if whisperPath == "" {
-			// Last resort: look in PATH
-			if found, err := exec.LookPath("whisper.exe"); err == nil {
-				whisperPath = found
-				log.Printf("[whisper] Found in PATH: %s", whisperPath)
-			} else {
-				log.Printf("[whisper] Not in PATH either, using bare name")
-				whisperPath = "whisper.exe"
-			}
-		}
-		log.Printf("[whisper] Final path: %s", whisperPath)
-	}
-	if modelPath == "" {
-		exe, err2 := os.Executable()
+	// Get our binary's directory (absolute, resolved)
+	exeDir := ""
+	if exe, err := os.Executable(); err == nil {
+		resolved, err2 := filepath.EvalSymlinks(exe)
 		if err2 == nil {
-			exe, _ = filepath.EvalSymlinks(exe)
-			// Look for models/ dir next to binary
-			modelsDir := filepath.Join(filepath.Dir(exe), "models")
-			candidate := filepath.Join(modelsDir, "ggml-base.en.bin")
+			exeDir = filepath.Dir(resolved)
+		} else {
+			exeDir = filepath.Dir(exe)
+		}
+	}
+	log.Printf("[whisper] Binary directory: %s", exeDir)
+
+	if whisperPath == "" && exeDir != "" {
+		// Check for whisper.exe next to our binary (ABSOLUTE path only)
+		candidate := filepath.Join(exeDir, "whisper.exe")
+		log.Printf("[whisper] Checking: %s", candidate)
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			whisperPath = candidate
+			log.Printf("[whisper] Found: %s", whisperPath)
+		} else {
+			log.Printf("[whisper] Not found next to binary: %v", err)
+		}
+	}
+	if whisperPath == "" && exeDir != "" {
+		// Maybe it's called whisper-cli.exe
+		candidate := filepath.Join(exeDir, "whisper-cli.exe")
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			whisperPath = candidate
+			log.Printf("[whisper] Found as whisper-cli.exe: %s", whisperPath)
+		}
+	}
+	if whisperPath == "" {
+		log.Printf("[whisper] ERROR: whisper.exe not found anywhere!")
+		whisperPath = filepath.Join(exeDir, "whisper.exe") // will fail but with clear error
+	}
+	log.Printf("[whisper] Final whisper path: %s", whisperPath)
+
+	if modelPath == "" && exeDir != "" {
+		// Check next to binary directly
+		candidate := filepath.Join(exeDir, "ggml-base.en.bin")
+		if _, err := os.Stat(candidate); err == nil {
+			modelPath = candidate
+			log.Printf("[whisper] Model found: %s", modelPath)
+		} else {
+			// Check models/ subdirectory
+			candidate = filepath.Join(exeDir, "models", "ggml-base.en.bin")
 			if _, err := os.Stat(candidate); err == nil {
 				modelPath = candidate
+				log.Printf("[whisper] Model found in models/: %s", modelPath)
+			} else {
+				log.Printf("[whisper] Model not found!")
 			}
 		}
 	}

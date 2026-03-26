@@ -1,13 +1,13 @@
 !define APP_NAME "Quill"
-!define APP_VERSION "1.0.1"
+!define APP_VERSION "1.0.2"
 !define APP_EXE "quill.exe"
 
-VIProductVersion "1.0.1.0"
+VIProductVersion "1.0.2.0"
 VIAddVersionKey "ProductName" "Quill"
 VIAddVersionKey "CompanyName" "Birbus Team"
 VIAddVersionKey "FileDescription" "Quill - Offline Voice Dictation"
-VIAddVersionKey "FileVersion" "1.0.1"
-VIAddVersionKey "ProductVersion" "1.0.1"
+VIAddVersionKey "FileVersion" "1.0.2"
+VIAddVersionKey "ProductVersion" "1.0.2"
 VIAddVersionKey "LegalCopyright" "MIT License"
 
 Name "${APP_NAME} ${APP_VERSION}"
