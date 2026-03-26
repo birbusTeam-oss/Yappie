@@ -57,16 +57,22 @@ jobs:
           if (!(Test-Path "Quill/quill.exe")) { Write-Error "quill.exe MISSING!" }
           if (!(Test-Path "Quill/ggml-base.en.bin")) { Write-Error "model MISSING!" }
 
+      - name: List bundle contents
+        shell: pwsh
+        run: |
+          Write-Host "=== Files being bundled ==="
+          Get-ChildItem Quill/ -Recurse | ForEach-Object { Write-Host "$($_.FullName) ($($_.Length) bytes)" }
+
       - name: Create zip
         shell: pwsh
         run: |
-          Compress-Archive -Path Quill/* -DestinationPath Quill-v1.0.4-windows.zip
+          Compress-Archive -Path Quill -DestinationPath Quill-v1.0.5-windows.zip -Force
 
       - name: Upload zip
         uses: actions/upload-artifact@v4
         with:
-          name: Quill-Bundle
-          path: Quill-v1.0.4-windows.zip
+          name: Quill-v1.0.5
+          path: Quill-v1.0.5-windows.zip
           retention-days: 30
 
   release:
@@ -79,27 +85,27 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: Quill-Bundle
+          name: Quill-v1.0.5
 
       - name: Publish release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v1.0.4
-          name: Quill v1.0.4
+          tag_name: v1.0.5
+          name: Quill v1.0.5
           make_latest: true
           body: |
-            ## Quill v1.0.4
+            ## Quill v1.0.5
 
             Offline voice dictation for Windows.
 
             ### Install
-            1. Download **Quill-v1.0.4-windows.zip**
+            1. Download **Quill-v1.0.5-windows.zip**
             2. Extract to any folder
             3. Run **quill.exe**
             4. Hold **Ctrl+Alt**, speak, release
 
             Everything included. No installer needed.
-          files: Quill-v1.0.4-windows.zip
+          files: Quill-v1.0.5-windows.zip
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
