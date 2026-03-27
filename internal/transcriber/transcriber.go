@@ -1,8 +1,11 @@
 package transcriber
 
 import (
+	"archive/zip"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,68 +31,45 @@ type Transcriber struct {
 // New creates a transcriber. If whisperPath is empty, it looks for whisper.exe
 // next to the quill binary, then in PATH.
 func New(whisperPath, modelPath string, removeFillers bool) *Transcriber {
-	// Get our binary's directory (absolute, resolved)
-	exeDir := ""
-	if exe, err := os.Executable(); err == nil {
-		resolved, err2 := filepath.EvalSymlinks(exe)
-		if err2 == nil {
-			exeDir = filepath.Dir(resolved)
-		} else {
-			exeDir = filepath.Dir(exe)
-		}
-	}
-	log.Printf("[whisper] Binary directory: %s", exeDir)
+	// Use %APPDATA%/Quill as the data directory (survives re-extractions)
+	dataDir := filepath.Join(os.Getenv("APPDATA"), "Quill")
+	os.MkdirAll(dataDir, 0755)
+	log.Printf("[whisper] Data directory: %s", dataDir)
 
-	if whisperPath == "" && exeDir != "" {
-		// Check for whisper.exe next to our binary (ABSOLUTE path only)
-		candidate := filepath.Join(exeDir, "whisper.exe")
-		log.Printf("[whisper] Checking: %s", candidate)
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			whisperPath = candidate
+	whisperExe := filepath.Join(dataDir, "whisper.exe")
+	modelFile := filepath.Join(dataDir, "ggml-base.en.bin")
+
+	// Check if whisper.exe exists in data dir
+	if whisperPath == "" {
+		if _, err := os.Stat(whisperExe); err == nil {
+			whisperPath = whisperExe
 			log.Printf("[whisper] Found: %s", whisperPath)
 		} else {
-			log.Printf("[whisper] Not found as whisper.exe: %v", err)
-			// Check for whisper.bin (shipped renamed to bypass Windows security)
-			binCandidate := filepath.Join(exeDir, "whisper.bin")
-			if _, err := os.Stat(binCandidate); err == nil {
-				log.Printf("[whisper] Found whisper.bin — renaming to whisper.exe")
-				if renameErr := os.Rename(binCandidate, candidate); renameErr == nil {
-					whisperPath = candidate
-					log.Printf("[whisper] Renamed successfully: %s", whisperPath)
-				} else {
-					log.Printf("[whisper] Rename failed: %v", renameErr)
-				}
+			// Auto-download whisper.cpp on first run
+			log.Printf("[whisper] Not found — downloading whisper.cpp...")
+			if err := downloadWhisper(dataDir); err != nil {
+				log.Printf("[whisper] Download failed: %v", err)
+				whisperPath = "whisper.exe" // will fail but with clear error
+			} else {
+				whisperPath = whisperExe
+				log.Printf("[whisper] Downloaded successfully: %s", whisperPath)
 			}
 		}
 	}
-	if whisperPath == "" && exeDir != "" {
-		// Maybe it's called whisper-cli.exe
-		candidate := filepath.Join(exeDir, "whisper-cli.exe")
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			whisperPath = candidate
-			log.Printf("[whisper] Found as whisper-cli.exe: %s", whisperPath)
-		}
-	}
-	if whisperPath == "" {
-		log.Printf("[whisper] ERROR: whisper.exe not found anywhere!")
-		whisperPath = filepath.Join(exeDir, "whisper.exe") // will fail but with clear error
-	}
-	log.Printf("[whisper] Final whisper path: %s", whisperPath)
 
-	if modelPath == "" && exeDir != "" {
-		// Check next to binary directly
-		candidate := filepath.Join(exeDir, "ggml-base.en.bin")
-		if _, err := os.Stat(candidate); err == nil {
-			modelPath = candidate
+	// Check if model exists
+	if modelPath == "" {
+		if _, err := os.Stat(modelFile); err == nil {
+			modelPath = modelFile
 			log.Printf("[whisper] Model found: %s", modelPath)
 		} else {
-			// Check models/ subdirectory
-			candidate = filepath.Join(exeDir, "models", "ggml-base.en.bin")
-			if _, err := os.Stat(candidate); err == nil {
-				modelPath = candidate
-				log.Printf("[whisper] Model found in models/: %s", modelPath)
+			// Auto-download model
+			log.Printf("[whisper] Model not found — downloading...")
+			if err := downloadFile("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin", modelFile); err != nil {
+				log.Printf("[whisper] Model download failed: %v", err)
 			} else {
-				log.Printf("[whisper] Model not found!")
+				modelPath = modelFile
+				log.Printf("[whisper] Model downloaded: %s", modelPath)
 			}
 		}
 	}
@@ -173,4 +153,88 @@ func cleanText(text string, removeFillers bool) string {
 	}
 
 	return text
+}
+
+
+// downloadWhisper downloads and extracts whisper.cpp binaries.
+func downloadWhisper(destDir string) error {
+	zipURL := "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.4/whisper-bin-x64.zip"
+	zipPath := filepath.Join(destDir, "whisper-bin.zip")
+
+	log.Printf("[whisper] Downloading from %s", zipURL)
+	if err := downloadFile(zipURL, zipPath); err != nil {
+		return fmt.Errorf("download failed: %w", err)
+	}
+	defer os.Remove(zipPath)
+
+	// Extract whisper-cli.exe and DLLs
+	log.Printf("[whisper] Extracting...")
+	r, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return fmt.Errorf("open zip: %w", err)
+	}
+	defer r.Close()
+
+	needed := map[string]string{
+		"Release/whisper-cli.exe": "whisper.exe",
+		"Release/ggml-base.dll":  "ggml-base.dll",
+		"Release/ggml-cpu.dll":   "ggml-cpu.dll",
+		"Release/ggml.dll":       "ggml.dll",
+		"Release/whisper.dll":    "whisper.dll",
+	}
+
+	for _, f := range r.File {
+		destName, ok := needed[f.Name]
+		if !ok {
+			continue
+		}
+		destPath := filepath.Join(destDir, destName)
+		log.Printf("[whisper] Extracting: %s → %s", f.Name, destPath)
+
+		src, err := f.Open()
+		if err != nil {
+			return fmt.Errorf("open %s: %w", f.Name, err)
+		}
+
+		dst, err := os.Create(destPath)
+		if err != nil {
+			src.Close()
+			return fmt.Errorf("create %s: %w", destPath, err)
+		}
+
+		_, err = io.Copy(dst, src)
+		src.Close()
+		dst.Close()
+		if err != nil {
+			return fmt.Errorf("copy %s: %w", f.Name, err)
+		}
+	}
+
+	return nil
+}
+
+// downloadFile downloads a URL to a local file.
+func downloadFile(url, destPath string) error {
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+
+	out, err := os.Create(destPath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	written, err := io.Copy(out, resp.Body)
+	if err != nil {
+		return err
+	}
+	log.Printf("[whisper] Downloaded %d bytes → %s", written, destPath)
+	return nil
 }

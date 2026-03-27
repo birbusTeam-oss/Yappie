@@ -30,49 +30,11 @@ jobs:
           go build -ldflags="-H windowsgui -s -w" -o quill.exe ./cmd/quill
           dir quill.exe
 
-      - name: Download whisper.cpp
-        shell: pwsh
-        run: |
-          mkdir Quill
-          Copy-Item quill.exe Quill/
-          Invoke-WebRequest -Uri "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.4/whisper-bin-x64.zip" -OutFile whisper-bin.zip
-          Expand-Archive whisper-bin.zip -DestinationPath whisper-extract
-          Copy-Item whisper-extract/Release/whisper-cli.exe Quill/whisper.bin
-          Copy-Item whisper-extract/Release/ggml-base.dll Quill/
-          Copy-Item whisper-extract/Release/ggml-cpu.dll Quill/
-          Copy-Item whisper-extract/Release/ggml.dll Quill/
-          Copy-Item whisper-extract/Release/whisper.dll Quill/
-
-      - name: Download whisper model
-        shell: pwsh
-        run: |
-          Invoke-WebRequest -Uri "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin" -OutFile Quill/ggml-base.en.bin
-
-      - name: Verify bundle contents
-        shell: pwsh
-        run: |
-          Write-Host "=== Bundle contents ==="
-          Get-ChildItem Quill/ | Format-Table Name, Length
-          if (!(Test-Path "Quill/whisper.bin")) { Write-Error "whisper.bin MISSING!" }
-          if (!(Test-Path "Quill/quill.exe")) { Write-Error "quill.exe MISSING!" }
-          if (!(Test-Path "Quill/ggml-base.en.bin")) { Write-Error "model MISSING!" }
-
-      - name: List bundle contents
-        shell: pwsh
-        run: |
-          Write-Host "=== Files being bundled ==="
-          Get-ChildItem Quill/ -Recurse | ForEach-Object { Write-Host "$($_.FullName) ($($_.Length) bytes)" }
-
-      - name: Create zip
-        shell: pwsh
-        run: |
-          Compress-Archive -Path Quill -DestinationPath Quill-v1.0.6-windows.zip -Force
-
-      - name: Upload zip
+      - name: Upload exe
         uses: actions/upload-artifact@v4
         with:
-          name: Quill-v1.0.6
-          path: Quill-v1.0.6-windows.zip
+          name: quill-exe
+          path: quill.exe
           retention-days: 30
 
   release:
@@ -85,27 +47,27 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: Quill-v1.0.6
+          name: quill-exe
 
       - name: Publish release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v1.0.6
-          name: Quill v1.0.6
+          tag_name: v1.1.0
+          name: Quill v1.1.0
           make_latest: true
           body: |
-            ## Quill v1.0.6
+            ## Quill v1.1.0
 
             Offline voice dictation for Windows.
 
             ### Install
-            1. Download **Quill-v1.0.6-windows.zip**
-            2. Extract to any folder
-            3. Run **quill.exe**
+            1. Download **quill.exe** (5MB)
+            2. Put it anywhere and run it
+            3. First launch downloads the speech engine automatically (~150MB, one time)
             4. Hold **Ctrl+Alt**, speak, release
 
-            Everything included. No installer needed.
-          files: Quill-v1.0.6-windows.zip
+            No installer. No zip. No extra downloads. One file.
+          files: quill.exe
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
