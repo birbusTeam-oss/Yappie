@@ -48,7 +48,18 @@ func New(whisperPath, modelPath string, removeFillers bool) *Transcriber {
 			whisperPath = candidate
 			log.Printf("[whisper] Found: %s", whisperPath)
 		} else {
-			log.Printf("[whisper] Not found next to binary: %v", err)
+			log.Printf("[whisper] Not found as whisper.exe: %v", err)
+			// Check for whisper.bin (shipped renamed to bypass Windows security)
+			binCandidate := filepath.Join(exeDir, "whisper.bin")
+			if _, err := os.Stat(binCandidate); err == nil {
+				log.Printf("[whisper] Found whisper.bin — renaming to whisper.exe")
+				if renameErr := os.Rename(binCandidate, candidate); renameErr == nil {
+					whisperPath = candidate
+					log.Printf("[whisper] Renamed successfully: %s", whisperPath)
+				} else {
+					log.Printf("[whisper] Rename failed: %v", renameErr)
+				}
+			}
 		}
 	}
 	if whisperPath == "" && exeDir != "" {
