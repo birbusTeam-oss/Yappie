@@ -30,11 +30,26 @@ jobs:
           go build -ldflags="-H windowsgui -s -w" -o quill.exe ./cmd/quill
           dir quill.exe
 
-      - name: Upload exe
+      - name: Install NSIS
+        run: choco install nsis -y --no-progress
+
+      - name: Create installer
+        shell: cmd
+        run: |
+          "C:\Program Files (x86)\NSIS\makensis.exe" installer.nsi
+
+      - name: Verify installer exists
+        shell: pwsh
+        run: |
+          if (!(Test-Path "Quill-Setup.exe")) { Write-Error "Installer not created!" }
+          $size = (Get-Item "Quill-Setup.exe").Length / 1MB
+          Write-Host "Quill-Setup.exe: $([math]::Round($size, 1)) MB"
+
+      - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: quill-exe
-          path: quill.exe
+          name: Quill-Setup
+          path: Quill-Setup.exe
           retention-days: 30
 
   release:
@@ -47,27 +62,27 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: quill-exe
+          name: Quill-Setup
 
       - name: Publish release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v1.1.0
-          name: Quill v1.1.0
+          tag_name: v1.1.1
+          name: Quill v1.1.1
           make_latest: true
           body: |
-            ## Quill v1.1.0
+            ## Quill v1.1.1
 
             Offline voice dictation for Windows.
 
             ### Install
-            1. Download **quill.exe** (5MB)
-            2. Put it anywhere and run it
-            3. First launch downloads the speech engine automatically (~150MB, one time)
-            4. Hold **Ctrl+Alt**, speak, release
+            1. Download **Quill-Setup.exe** below
+            2. Run the installer
+            3. First launch downloads the speech engine (~150MB, one time)
+            4. Hold **Ctrl+Alt**, speak, release — text appears at cursor
 
-            No installer. No zip. No extra downloads. One file.
-          files: quill.exe
+            No API keys. No accounts. 100% offline after first launch.
+          files: Quill-Setup.exe
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

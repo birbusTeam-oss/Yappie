@@ -1,13 +1,13 @@
 !define APP_NAME "Quill"
-!define APP_VERSION "1.0.3"
+!define APP_VERSION "1.1.1"
 !define APP_EXE "quill.exe"
 
-VIProductVersion "1.0.3.0"
+VIProductVersion "1.1.1.0"
 VIAddVersionKey "ProductName" "Quill"
 VIAddVersionKey "CompanyName" "Birbus Team"
 VIAddVersionKey "FileDescription" "Quill - Offline Voice Dictation"
-VIAddVersionKey "FileVersion" "1.0.3"
-VIAddVersionKey "ProductVersion" "1.0.3"
+VIAddVersionKey "FileVersion" "1.1.1"
+VIAddVersionKey "ProductVersion" "1.1.1"
 VIAddVersionKey "LegalCopyright" "MIT License"
 
 Name "${APP_NAME} ${APP_VERSION}"
@@ -28,26 +28,10 @@ SetCompressor lzma
 
 Section "Install"
     SetOutPath "$INSTDIR"
-    
-    ; Main app
     File "${APP_EXE}"
-    
-    ; Whisper engine (already renamed to whisper.exe by CI)
-    File "whisper\whisper.exe"
-    File "whisper\ggml-base.dll"
-    File "whisper\ggml-cpu.dll"
-    File "whisper\ggml.dll"
-    File "whisper\whisper.dll"
-    
-    ; Model
-    File "whisper\ggml-base.en.bin"
-    
-    ; Shortcuts
     CreateDirectory "$SMPROGRAMS\${APP_NAME}"
     CreateShortCut "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" "$INSTDIR\${APP_EXE}"
     CreateShortCut "$SMPROGRAMS\${APP_NAME}\Uninstall.lnk" "$INSTDIR\Uninstall.exe"
-    
-    ; Uninstaller
     WriteUninstaller "$INSTDIR\Uninstall.exe"
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}" "DisplayName" "${APP_NAME}"
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
@@ -57,12 +41,6 @@ SectionEnd
 
 Section "Uninstall"
     Delete "$INSTDIR\${APP_EXE}"
-    Delete "$INSTDIR\whisper.exe"
-    Delete "$INSTDIR\ggml-base.dll"
-    Delete "$INSTDIR\ggml-cpu.dll"
-    Delete "$INSTDIR\ggml.dll"
-    Delete "$INSTDIR\whisper.dll"
-    Delete "$INSTDIR\ggml-base.en.bin"
     Delete "$INSTDIR\Uninstall.exe"
     Delete "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk"
     Delete "$SMPROGRAMS\${APP_NAME}\Uninstall.lnk"
