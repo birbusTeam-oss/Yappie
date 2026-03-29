@@ -2,6 +2,7 @@ package transcriber
 
 import (
 	"archive/zip"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"log"
@@ -17,9 +18,7 @@ import (
 // Filler words to remove.
 var fillers = map[string]bool{
 	"um": true, "uh": true, "er": true, "ah": true,
-	"like": true, "you know": true, "i mean": true,
-	"basically": true, "actually": true, "literally": true,
-	"so": true, "well": true, "right": true,
+	"hmm": true, "uhh": true, "umm": true,
 }
 
 // Transcriber shells out to a whisper CLI binary.
@@ -45,7 +44,7 @@ func New(whisperPath, modelPath string, removeFillers bool) *Transcriber {
 	log.Printf("[whisper] Data directory: %s", dataDir)
 
 	whisperExe := filepath.Join(dataDir, "whisper.exe")
-	modelFile := filepath.Join(dataDir, "ggml-base.en.bin")
+	modelFile := filepath.Join(dataDir, "ggml-tiny.en.bin")
 
 	// Check if whisper.exe exists in data dir
 	if whisperPath == "" {
@@ -75,7 +74,7 @@ func New(whisperPath, modelPath string, removeFillers bool) *Transcriber {
 		} else {
 			// Auto-download model
 			log.Printf("[whisper] Model not found — downloading...")
-			if err := downloadFile("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin", modelFile); err != nil {
+			if err := downloadFile("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin", modelFile); err != nil {
 				log.Printf("[whisper] Model download failed: %v", err)
 			} else {
 				modelPath = modelFile
@@ -97,6 +96,9 @@ func (t *Transcriber) Transcribe(wavPath string) (string, error) {
 		"--no-timestamps",
 		"--output-txt",
 		"-l", "en",
+		"-t", "4",           // use 4 threads
+		"--no-prints",       // suppress progress output
+		"-bs", "1",          // beam size 1 = greedy (fastest)
 	}
 	if t.ModelPath != "" {
 		args = append(args, "-m", t.ModelPath)
@@ -251,4 +253,59 @@ func downloadFile(url, destPath string) error {
 	}
 	log.Printf("[whisper] Downloaded %d bytes → %s", written, destPath)
 	return nil
+}
+
+// Warmup pre-loads the whisper model so the first real transcription is fast.
+func (t *Transcriber) Warmup() {
+	log.Println("[whisper] Warming up model...")
+	// Create a tiny 0.1s silent WAV
+	tmpPath := filepath.Join(os.TempDir(), "quill_warmup.wav")
+	f, err := os.Create(tmpPath)
+	if err != nil {
+		log.Printf("[whisper] Warmup file creation failed: %v", err)
+		return
+	}
+	// Write minimal WAV header + 1600 samples (0.1s at 16kHz)
+	samples := 1600
+	dataSize := samples * 2
+	f.Write([]byte("RIFF"))
+	binary.Write(f, binary.LittleEndian, uint32(36+dataSize))
+	f.Write([]byte("WAVE"))
+	f.Write([]byte("fmt "))
+	binary.Write(f, binary.LittleEndian, uint32(16))
+	binary.Write(f, binary.LittleEndian, uint16(1)) // PCM
+	binary.Write(f, binary.LittleEndian, uint16(1)) // mono
+	binary.Write(f, binary.LittleEndian, uint32(16000)) // sample rate
+	binary.Write(f, binary.LittleEndian, uint32(32000)) // byte rate
+	binary.Write(f, binary.LittleEndian, uint16(2)) // block align
+	binary.Write(f, binary.LittleEndian, uint16(16)) // bits
+	f.Write([]byte("data"))
+	binary.Write(f, binary.LittleEndian, uint32(dataSize))
+	silence := make([]byte, dataSize)
+	f.Write(silence)
+	f.Close()
+
+	defer os.Remove(tmpPath)
+
+	// Run whisper on it — this loads the model into OS disk cache
+	args := []string{
+		"-f", tmpPath,
+		"--no-timestamps",
+		"-l", "en",
+		"-t", "4",
+		"--no-prints",
+		"-bs", "1",
+	}
+	if t.ModelPath != "" {
+		args = append(args, "-m", t.ModelPath)
+	}
+
+	cmd := exec.Command(t.WhisperPath, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow:    true,
+		CreationFlags: 0x08000000,
+	}
+	cmd.Run() // ignore errors, just warming up
+	os.Remove(tmpPath + ".txt")
+	log.Println("[whisper] Warmup complete — model cached")
 }

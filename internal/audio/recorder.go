@@ -215,9 +215,58 @@ func (r *Recorder) Stop() (string, error) {
 		return "", fmt.Errorf("no audio recorded")
 	}
 
+	// Trim silence for faster transcription
+	samples = trimSilence(samples, 500)
+	if len(samples) < 1600 {
+		return "", fmt.Errorf("no speech detected")
+	}
+
 	return writeWAV(samples)
 }
 
+
+// trimSilence removes leading/trailing silence from samples.
+// Threshold is the minimum amplitude to consider "sound".
+func trimSilence(samples []int16, threshold int16) []int16 {
+	if len(samples) == 0 {
+		return samples
+	}
+
+	// Find first non-silent sample
+	start := 0
+	for start < len(samples) {
+		if samples[start] > threshold || samples[start] < -threshold {
+			break
+		}
+		start++
+	}
+
+	// Find last non-silent sample
+	end := len(samples) - 1
+	for end > start {
+		if samples[end] > threshold || samples[end] < -threshold {
+			break
+		}
+		end--
+	}
+
+	if start >= end {
+		return samples // all silence, keep original
+	}
+
+	// Add 1600 samples (100ms) padding on each side
+	pad := 1600
+	start -= pad
+	if start < 0 {
+		start = 0
+	}
+	end += pad
+	if end >= len(samples) {
+		end = len(samples) - 1
+	}
+
+	return samples[start : end+1]
+}
 // writeWAV saves PCM samples to a temp WAV file.
 func writeWAV(samples []int16) (string, error) {
 	tmpDir := os.TempDir()
