@@ -47,9 +47,9 @@ func New(hotkey string) *Tray {
 // Run starts the system tray. This BLOCKS — call from main goroutine.
 func (t *Tray) Run(onReady func()) {
 	systray.Run(func() {
-		systray.SetTitle("Quill")
-		systray.SetTooltip("Quill — Ready (Hold " + t.hotkey + " to dictate)")
-		systray.SetIcon(quillIcon) // Quill feather logo
+		systray.SetTitle("Yappie")
+		systray.SetTooltip("Yappie — Ready (Hold " + t.hotkey + " to dictate)")
+		systray.SetIcon(yappieIcon) // Yappie icon
 
 		// Status display
 		t.statusItem = systray.AddMenuItem("Ready — Hold "+t.hotkey, "")
@@ -62,7 +62,7 @@ func (t *Tray) Run(onReady func()) {
 		
 		systray.AddSeparator()
 
-		mQuit := systray.AddMenuItem("Quit Quill", "Exit")
+		mQuit := systray.AddMenuItem("Quit Yappie", "Exit")
 
 		if onReady != nil {
 			onReady()
@@ -97,19 +97,19 @@ func (t *Tray) SetStatus(s Status) {
 	switch s {
 	case StatusRecording:
 		systray.SetIcon(makeIcon(0xEF, 0x44, 0x44)) // Red = recording
-		systray.SetTooltip("Quill — Recording...")
+		systray.SetTooltip("Yappie — Recording...")
 		if t.statusItem != nil {
 			t.statusItem.SetTitle("Recording... (release " + t.hotkey + " to stop)")
 		}
 	case StatusTranscribing:
 		systray.SetIcon(makeIcon(0xF5, 0x9E, 0x0B)) // Amber = processing
-		systray.SetTooltip("Quill — Transcribing...")
+		systray.SetTooltip("Yappie — Transcribing...")
 		if t.statusItem != nil {
 			t.statusItem.SetTitle("Transcribing...")
 		}
 	case StatusDone:
 		systray.SetIcon(makeIcon(0x10, 0xB9, 0x81)) // Green = success
-		systray.SetTooltip("Quill — Done!")
+		systray.SetTooltip("Yappie — Done!")
 		if t.statusItem != nil {
 			if t.lastWords > 0 {
 				t.statusItem.SetTitle(fmt.Sprintf("Injected %d words", t.lastWords))
@@ -121,13 +121,13 @@ func (t *Tray) SetStatus(s Status) {
 		go pMessageBeep.Call(0x00000040) // MB_ICONINFORMATION
 	case StatusError:
 		systray.SetIcon(makeIcon(0xEF, 0x44, 0x44)) // Red = error
-		systray.SetTooltip("Quill — Error")
+		systray.SetTooltip("Yappie — Error")
 		if t.statusItem != nil {
 			t.statusItem.SetTitle("Error — check log")
 		}
 	default: // Idle
-		systray.SetIcon(quillIcon) // Quill logo
-		systray.SetTooltip("Quill — Ready (Hold " + t.hotkey + " to dictate)")
+		systray.SetIcon(yappieIcon) // Yappie icon
+		systray.SetTooltip("Yappie — Ready (Hold " + t.hotkey + " to dictate)")
 		if t.statusItem != nil {
 			t.statusItem.SetTitle("Ready — Hold " + t.hotkey)
 		}
@@ -199,7 +199,7 @@ func getExePath() string {
 func isAutoStartEnabled() bool {
 	cmd := exec.Command("reg", "query",
 		`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`,
-		"/v", "Quill")
+		"/v", "Yappie")
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 	return cmd.Run() == nil
 }
@@ -211,7 +211,7 @@ func enableAutoStart() {
 	}
 	cmd := exec.Command("reg", "add", 
 		`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`,
-		"/v", "Quill", "/t", "REG_SZ", "/d", `"`+exe+`"`, "/f")
+		"/v", "Yappie", "/t", "REG_SZ", "/d", `"`+exe+`"`, "/f")
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 	cmd.Run()
 }
@@ -219,7 +219,7 @@ func enableAutoStart() {
 func disableAutoStart() {
 	cmd := exec.Command("reg", "delete",
 		`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`,
-		"/v", "Quill", "/f")
+		"/v", "Yappie", "/f")
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 	cmd.Run()
 }

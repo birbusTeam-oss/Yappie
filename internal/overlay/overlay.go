@@ -150,7 +150,7 @@ func (o *Overlay) Run() {
 		}
 	}()
 
-	className, _ := syscall.UTF16PtrFromString("QuillOverlay")
+	className, _ := syscall.UTF16PtrFromString("YappieOverlay")
 	hInst, _, _ := pGetModuleHandle.Call(0)
 
 	wc := WNDCLASSEX{

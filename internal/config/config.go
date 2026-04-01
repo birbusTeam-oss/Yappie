@@ -7,7 +7,7 @@ import (
 	"sync"
 )
 
-// Config holds all Quill settings.
+// Config holds all Yappie settings.
 type Config struct {
 	Hotkey            string `json:"hotkey"`
 	Model             string `json:"model"`
@@ -32,13 +32,13 @@ func DefaultConfig() *Config {
 	}
 }
 
-// configDir returns %APPDATA%/Quill, creating it if needed.
+// configDir returns %APPDATA%/Yappie, creating it if needed.
 func configDir() (string, error) {
 	appdata := os.Getenv("APPDATA")
 	if appdata == "" {
 		appdata = filepath.Join(os.Getenv("USERPROFILE"), "AppData", "Roaming")
 	}
-	dir := filepath.Join(appdata, "Quill")
+	dir := filepath.Join(appdata, "Yappie")
 	return dir, os.MkdirAll(dir, 0755)
 }
 
@@ -113,7 +113,7 @@ func (c *Config) SetHotkey(hk string) error {
 	return c.Save()
 }
 
-// DataDir returns the Quill data directory (%APPDATA%/Quill).
+// DataDir returns the Yappie data directory (%APPDATA%/Yappie).
 func DataDir() (string, error) {
 	return configDir()
 }

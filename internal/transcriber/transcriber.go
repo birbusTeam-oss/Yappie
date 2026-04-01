@@ -29,7 +29,7 @@ type Transcriber struct {
 }
 
 // New creates a transcriber. If whisperPath is empty, it looks for whisper.exe
-// next to the quill binary, then in PATH.
+// next to the yappie binary, then in PATH.
 func New(whisperPath, modelPath string, removeFillers bool) *Transcriber {
 	// If whisperPath from config doesn't actually exist, ignore it
 	if whisperPath != "" {
@@ -38,8 +38,8 @@ func New(whisperPath, modelPath string, removeFillers bool) *Transcriber {
 			whisperPath = ""
 		}
 	}
-	// Use %APPDATA%/Quill as the data directory (survives re-extractions)
-	dataDir := filepath.Join(os.Getenv("APPDATA"), "Quill")
+	// Use %APPDATA%/Yappie as the data directory (survives re-extractions)
+	dataDir := filepath.Join(os.Getenv("APPDATA"), "Yappie")
 	os.MkdirAll(dataDir, 0755)
 	log.Printf("[whisper] Data directory: %s", dataDir)
 
@@ -259,7 +259,7 @@ func downloadFile(url, destPath string) error {
 func (t *Transcriber) Warmup() {
 	log.Println("[whisper] Warming up model...")
 	// Create a tiny 0.1s silent WAV
-	tmpPath := filepath.Join(os.TempDir(), "quill_warmup.wav")
+	tmpPath := filepath.Join(os.TempDir(), "yappie_warmup.wav")
 	f, err := os.Create(tmpPath)
 	if err != nil {
 		log.Printf("[whisper] Warmup file creation failed: %v", err)

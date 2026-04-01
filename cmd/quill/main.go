@@ -22,14 +22,14 @@ func main() {
 	// Setup logging
 	dataDir, _ := config.DataDir()
 	if dataDir != "" {
-		logPath := filepath.Join(dataDir, "quill.log")
+		logPath := filepath.Join(dataDir, "yappie.log")
 		logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err == nil {
 			log.SetOutput(logFile)
 			defer logFile.Close()
 		}
 	}
-	log.Println("Quill starting...")
+	log.Println("Yappie starting...")
 
 	// Load config
 	cfg, err := config.Load()
@@ -160,7 +160,7 @@ func main() {
 
 	// Run tray (blocks until quit)
 	tr.Run(func() {
-		log.Println("Quill ready — tray active")
+		log.Println("Yappie ready — tray active")
 		// Wait for overlay window to be created
 		ov.WaitReady()
 		ov.ShowReady(cfg.GetHotkey())
@@ -168,14 +168,14 @@ func main() {
 			time.Sleep(3 * time.Second)
 			ov.ShowIdle()
 		}()
-		fmt.Println("Quill is running. Use the system tray to quit.")
+		fmt.Println("Yappie is running. Use the system tray to quit.")
 	})
 
 	// If tray exits unexpectedly, keep running and try to restart it
 	log.Println("Tray exited — checking if intentional...")
 	select {
 	case <-tr.QuitCh:
-		log.Println("Quill shutting down (user quit)")
+		log.Println("Yappie shutting down (user quit)")
 	default:
 		log.Println("Tray crashed — keeping process alive")
 		// Block forever — only system shutdown or task kill will stop us

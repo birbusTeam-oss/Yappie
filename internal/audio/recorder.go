@@ -270,7 +270,7 @@ func trimSilence(samples []int16, threshold int16) []int16 {
 // writeWAV saves PCM samples to a temp WAV file.
 func writeWAV(samples []int16) (string, error) {
 	tmpDir := os.TempDir()
-	path := filepath.Join(tmpDir, fmt.Sprintf("quill_%d.wav", time.Now().UnixNano()))
+	path := filepath.Join(tmpDir, fmt.Sprintf("yappie_%d.wav", time.Now().UnixNano()))
 
 	f, err := os.Create(path)
 	if err != nil {

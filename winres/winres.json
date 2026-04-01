@@ -8,10 +8,10 @@
     "#1": {
       "0409": {
         "identity": {
-          "name": "Quill",
+          "name": "Yappie",
           "version": "1.2.0.0"
         },
-        "description": "Quill Voice Dictation",
+        "description": "Yappie Voice Dictation",
         "minimum-os": "win7",
         "execution-level": "asInvoker",
         "dpi-awareness": "per monitor v2",
@@ -29,12 +29,12 @@
         "info": {
           "0409": {
             "CompanyName": "Birbus Team",
-            "FileDescription": "Quill Voice Dictation",
+            "FileDescription": "Yappie Voice Dictation",
             "FileVersion": "1.2.0",
-            "InternalName": "quill",
+            "InternalName": "yappie",
             "LegalCopyright": "MIT License",
-            "OriginalFilename": "Quill.exe",
-            "ProductName": "Quill",
+            "OriginalFilename": "Yappie.exe",
+            "ProductName": "Yappie",
             "ProductVersion": "1.2.0"
           }
         }

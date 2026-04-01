@@ -11,12 +11,12 @@
   "StringFileInfo": {
     "Comments": "",
     "CompanyName": "Birbus Team",
-    "FileDescription": "Quill - Offline Voice Dictation",
+    "FileDescription": "Yappie - Offline Voice Dictation",
     "FileVersion": "1.0.0.0",
-    "InternalName": "quill",
+    "InternalName": "yappie",
     "LegalCopyright": "MIT License",
-    "OriginalFilename": "quill.exe",
-    "ProductName": "Quill",
+    "OriginalFilename": "yappie.exe",
+    "ProductName": "Yappie",
     "ProductVersion": "1.0.0.0"
   },
   "VarFileInfo": {
@@ -26,5 +26,5 @@
     }
   },
   "IconPath": "",
-  "ManifestPath": "quill.manifest"
+  "ManifestPath": "yappie.manifest"
 }

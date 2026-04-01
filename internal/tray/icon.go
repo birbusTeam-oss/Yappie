@@ -7,7 +7,7 @@ import (
 	"image/color"
 )
 
-// generateIcon creates a simple 16x16 ICO with a quill-like design (blue pen on white).
+// generateIcon creates a simple 16x16 ICO with a yappie-like design (purple mouth/speech bubble).
 func generateIcon() []byte {
 	// Create 16x16 RGBA image
 	img := image.NewRGBA(image.Rect(0, 0, 16, 16))
@@ -19,7 +19,7 @@ func generateIcon() []byte {
 		}
 	}
 
-	// Draw a simple pen/quill shape
+	// Draw a simple mouth/speech bubble shape
 	blue := color.RGBA{66, 133, 244, 255}  // Google blue
 	dark := color.RGBA{25, 50, 100, 255}    // dark blue
 	gold := color.RGBA{255, 193, 7, 255}    // gold tip
