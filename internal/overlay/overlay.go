@@ -14,7 +14,6 @@ var (
 	user32   = syscall.NewLazyDLL("user32.dll")
 	kernel32 = syscall.NewLazyDLL("kernel32.dll")
 	gdi32    = syscall.NewLazyDLL("gdi32.dll")
-	msimg32  = syscall.NewLazyDLL("msimg32.dll")
 
 	pCreateWindowEx             = user32.NewProc("CreateWindowExW")
 	pDefWindowProc              = user32.NewProc("DefWindowProcW")
@@ -22,7 +21,6 @@ var (
 	pShowWindow                 = user32.NewProc("ShowWindow")
 	pGetSysMetrics              = user32.NewProc("GetSystemMetrics")
 	pSetTimer                   = user32.NewProc("SetTimer")
-	pSetLayeredWindowAttributes = user32.NewProc("SetLayeredWindowAttributes")
 	pGetModuleHandle            = kernel32.NewProc("GetModuleHandleW")
 	pPeekMessage                = user32.NewProc("PeekMessageW")
 	pTranslateMessage           = user32.NewProc("TranslateMessage")
@@ -61,8 +59,8 @@ const (
 	AC_SRC_OVER      = 0x00
 	AC_SRC_ALPHA     = 0x01
 
-	pillW = 280
-	pillH = 38
+	pillW = 340
+	pillH = 44
 )
 
 type POINT struct{ X, Y int32 }
@@ -118,6 +116,7 @@ const (
 	stateTranscribing
 	stateSuccess
 	stateError
+	stateReady
 )
 
 type Overlay struct {
@@ -133,6 +132,10 @@ type Overlay struct {
 	// Animation state
 	animTick  int
 	startTime time.Time
+
+	// Fade animation
+	fadeAlpha float64 // 0.0 = invisible, 1.0 = fully visible
+	fadeDir   int     // 1 = fading in, -1 = fading out, 0 = stable
 }
 
 var globalOverlay *Overlay
@@ -143,6 +146,7 @@ func New() *Overlay {
 		ready:     make(chan struct{}),
 		state:     stateIdle,
 		startTime: time.Now(),
+		fadeAlpha: 1.0,
 	}
 	globalOverlay = o
 	return o
@@ -183,8 +187,8 @@ func (o *Overlay) Run() {
 	)
 	o.hwnd = hwnd
 
-	// Animation timer — 30fps for smooth animations
-	pSetTimer.Call(hwnd, 1, 33, 0)
+	// Animation timer — 60fps for buttery smooth animations
+	pSetTimer.Call(hwnd, 1, 16, 0)
 
 	close(o.ready)
 
@@ -195,7 +199,7 @@ func (o *Overlay) Run() {
 			pTranslateMessage.Call(uintptr(unsafe.Pointer(&msg)))
 			pDispatchMessage.Call(uintptr(unsafe.Pointer(&msg)))
 		}
-		time.Sleep(8 * time.Millisecond)
+		time.Sleep(4 * time.Millisecond)
 	}
 }
 
@@ -220,16 +224,34 @@ func (o *Overlay) onTick() {
 
 	o.animTick++
 
-	// Auto-hide check
-	if !o.hideAt.IsZero() && time.Now().After(o.hideAt) {
-		o.setIdleLocked()
-		return
+	// Handle fade animation
+	if o.fadeDir != 0 {
+		step := 0.08 // fade speed
+		if o.fadeDir > 0 {
+			o.fadeAlpha += step
+			if o.fadeAlpha >= 1.0 {
+				o.fadeAlpha = 1.0
+				o.fadeDir = 0
+			}
+		} else {
+			o.fadeAlpha -= step
+			if o.fadeAlpha <= 0 {
+				o.fadeAlpha = 0
+				o.fadeDir = 0
+				o.visible = false
+				pShowWindow.Call(o.hwnd, SW_HIDE)
+				return
+			}
+		}
 	}
 
-	// Animate recording state (pulsing dot)
-	if o.state == stateRecording || o.state == stateTranscribing {
-		o.renderLocked(pillW, pillH)
+	// Auto-hide check
+	if !o.hideAt.IsZero() && time.Now().After(o.hideAt) {
+		o.fadeDir = -1
+		o.hideAt = time.Time{}
 	}
+
+	o.renderLocked(pillW, pillH)
 }
 
 // ── Public API ──
@@ -240,9 +262,11 @@ func (o *Overlay) Show(status string, r, g, b byte, autoHideMs int) {
 
 	o.status = status
 	o.r, o.g, o.b = r, g, b
-	o.state = stateSuccess
+	o.state = stateReady
 	o.animTick = 0
 	o.startTime = time.Now()
+	o.fadeAlpha = 0
+	o.fadeDir = 1
 	if autoHideMs > 0 {
 		o.hideAt = time.Now().Add(time.Duration(autoHideMs) * time.Millisecond)
 	} else {
@@ -256,8 +280,7 @@ func (o *Overlay) Show(status string, r, g, b byte, autoHideMs int) {
 func (o *Overlay) Hide() {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	o.visible = false
-	pShowWindow.Call(o.hwnd, SW_HIDE)
+	o.fadeDir = -1
 }
 
 func (o *Overlay) ShowIdle() {
@@ -272,6 +295,8 @@ func (o *Overlay) setIdleLocked() {
 	o.state = stateIdle
 	o.visible = true
 	o.hideAt = time.Time{}
+	o.fadeAlpha = 1.0
+	o.fadeDir = 0
 	o.renderLocked(pillW, pillH)
 	pShowWindow.Call(o.hwnd, SW_SHOW)
 }
@@ -287,6 +312,8 @@ func (o *Overlay) ShowRecording() {
 	o.startTime = time.Now()
 	o.hideAt = time.Time{}
 	o.visible = true
+	o.fadeAlpha = 1.0
+	o.fadeDir = 0
 	o.renderLocked(pillW, pillH)
 	pShowWindow.Call(o.hwnd, SW_SHOW)
 }
@@ -302,6 +329,8 @@ func (o *Overlay) ShowTranscribing() {
 	o.startTime = time.Now()
 	o.hideAt = time.Time{}
 	o.visible = true
+	o.fadeAlpha = 1.0
+	o.fadeDir = 0
 	o.renderLocked(pillW, pillH)
 	pShowWindow.Call(o.hwnd, SW_SHOW)
 }
@@ -323,6 +352,8 @@ func (o *Overlay) ShowSuccess(words int) {
 	o.startTime = time.Now()
 	o.hideAt = time.Now().Add(2500 * time.Millisecond)
 	o.visible = true
+	o.fadeAlpha = 1.0
+	o.fadeDir = 0
 	o.renderLocked(pillW, pillH)
 	pShowWindow.Call(o.hwnd, SW_SHOW)
 }
@@ -341,6 +372,8 @@ func (o *Overlay) ShowError(msg string) {
 	o.startTime = time.Now()
 	o.hideAt = time.Now().Add(3 * time.Second)
 	o.visible = true
+	o.fadeAlpha = 1.0
+	o.fadeDir = 0
 	o.renderLocked(pillW, pillH)
 	pShowWindow.Call(o.hwnd, SW_SHOW)
 }
@@ -378,79 +411,67 @@ func (o *Overlay) renderLocked(w, h int) {
 		pixels[i] = 0
 	}
 
+	// Global fade multiplier
+	fade := o.fadeAlpha
+
 	if o.state == stateIdle {
-		// Idle: subtle breathing dot
-		breathe := 0.7 + 0.3*math.Sin(float64(o.animTick)*0.05)
-		alpha := byte(80 * breathe)
-		drawCircle(pixels, w, h, w/2, h/2, 5, o.r, o.g, o.b, alpha)
+		// Idle: subtle breathing dot — minimal and elegant
+		breathe := 0.6 + 0.4*math.Sin(float64(o.animTick)*0.03)
+		alpha := byte(float64(65) * breathe * fade)
+		drawCircle(pixels, w, h, w/2, h/2, 4, o.r, o.g, o.b, alpha)
+		// Outer glow ring
+		glowA := byte(float64(20) * breathe * fade)
+		drawCircle(pixels, w, h, w/2, h/2, 8, o.r, o.g, o.b, glowA)
 	} else {
-		// Active states: pill with glassmorphism effect
+		// Active states: premium pill with glassmorphism
 
-		// Background — dark glass
-		drawRoundedRect(pixels, w, h, 0, 0, w, h, h/2, 15, 15, 22, 220)
+		// Background — dark frosted glass with subtle gradient
+		bgAlpha := byte(float64(225) * fade)
+		drawRoundedRect(pixels, w, h, 0, 0, w, h, h/2, 18, 18, 26, bgAlpha)
 
-		// Top highlight (glass effect)
-		for y := 0; y < h/3; y++ {
+		// Inner fill gradient — slightly lighter at top for depth
+		for y := 0; y < h/2; y++ {
+			grad := 1.0 - float64(y)/float64(h/2)
+			a := byte(float64(8) * grad * fade)
 			for x := 0; x < w; x++ {
-				lx := float64(x)
-				ly := float64(y)
-				fw := float64(w)
-				fh := float64(h)
-				dist := roundedRectDist(lx, ly, fw, fh, float64(h/2))
-				if dist < -1.0 {
-					grad := 1.0 - float64(y)/float64(h/3)
-					a := byte(12 * grad)
-					blendPixel(pixels, w, x, y, 255, 255, 255, a)
+				if isInsideRoundedRect(float64(x), float64(y), float64(w), float64(h), float64(h/2)) {
+					blendPixel(pixels, w, h, x, y, 255, 255, 255, a)
 				}
 			}
 		}
 
-		// Subtle border
-		drawRoundedRectBorder(pixels, w, h, 0, 0, w, h, h/2, 60, 60, 80, 35)
+		// Top highlight — glass reflection
+		for y := 1; y < h/3; y++ {
+			for x := 0; x < w; x++ {
+				if isInsideRoundedRect(float64(x), float64(y), float64(w), float64(h), float64(h/2)) {
+					grad := 1.0 - float64(y)/float64(h/3)
+					a := byte(float64(18) * grad * grad * fade)
+					blendPixel(pixels, w, h, x, y, 255, 255, 255, a)
+				}
+			}
+		}
+
+		// Border — subtle, refined
+		borderA := byte(float64(40) * fade)
+		drawRoundedRectBorder(pixels, w, h, 0, 0, w, h, h/2, 80, 80, 110, borderA)
+
+		// Inner highlight border (1px inside, very subtle)
+		innerA := byte(float64(12) * fade)
+		drawRoundedRectBorder(pixels, w, h, 1, 1, w-2, h-2, h/2-1, 255, 255, 255, innerA)
 
 		// Status indicator
 		switch o.state {
 		case stateRecording:
-			// Pulsing red dot
-			pulse := 0.6 + 0.4*math.Sin(float64(o.animTick)*0.15)
-			radius := 5.0 + 1.5*pulse
-			alpha := byte(255 * (0.7 + 0.3*pulse))
-			// Glow
-			drawCircle(pixels, w, h, 20, h/2, int(radius+3), o.r, o.g, o.b, byte(float64(alpha)*0.25))
-			drawCircle(pixels, w, h, 20, h/2, int(radius), o.r, o.g, o.b, alpha)
-
-			// Recording timer
-			elapsed := time.Since(o.startTime)
-			secs := int(elapsed.Seconds())
-			timerStr := fmt.Sprintf("%d:%02d", secs/60, secs%60)
-			// Draw timer on the right side
-			drawTextGDI(pixels, w, h, timerStr, memDC, w-60, 0, w-10, h, 0x99, 0x99, 0xAA)
-
+			o.drawRecordingState(pixels, w, h, fade, memDC)
 		case stateTranscribing:
-			// Spinning dots animation
-			cx, cy := 20, h/2
-			for i := 0; i < 3; i++ {
-				angle := float64(o.animTick)*0.12 + float64(i)*2.1
-				dx := int(math.Cos(angle) * 4)
-				dy := int(math.Sin(angle) * 4)
-				a := byte(180 + 75*math.Sin(angle))
-				drawCircle(pixels, w, h, cx+dx, cy+dy, 2, o.r, o.g, o.b, a)
-			}
-
+			o.drawTranscribingState(pixels, w, h, fade, memDC)
 		case stateSuccess:
-			// Checkmark dot
-			drawCircle(pixels, w, h, 20, h/2, 6, o.r, o.g, o.b, 255)
-			// Simple checkmark using pixels
-			drawCheck(pixels, w, 17, h/2-1, 255, 255, 255, 240)
-
+			o.drawSuccessState(pixels, w, h, fade, memDC)
 		case stateError:
-			// X dot
-			drawCircle(pixels, w, h, 20, h/2, 6, o.r, o.g, o.b, 255)
-			drawX(pixels, w, 20, h/2, 255, 255, 255, 240)
+			o.drawErrorState(pixels, w, h, fade, memDC)
+		case stateReady:
+			o.drawReadyState(pixels, w, h, fade, memDC)
 		}
-
-		// Main text
-		drawTextGDI(pixels, w, h, o.status, memDC, 36, 0, w-12, h, 0xE0, 0xE0, 0xE4)
 	}
 
 	// Update layered window
@@ -480,26 +501,153 @@ func (o *Overlay) renderLocked(w, h int) {
 	pReleaseDC.Call(0, screenDC)
 }
 
+// ── State-specific renderers ──
+
+func (o *Overlay) drawRecordingState(pixels *[1 << 25]byte, w, h int, fade float64, memDC uintptr) {
+	// Pulsing red dot with glow
+	pulse := 0.5 + 0.5*math.Sin(float64(o.animTick)*0.1)
+	dotRadius := 5.0 + 1.0*pulse
+
+	// Outer glow
+	glowA := byte(float64(50) * pulse * fade)
+	drawCircle(pixels, w, h, 22, h/2, int(dotRadius+5), o.r, o.g, o.b, glowA)
+	// Mid glow
+	midA := byte(float64(80) * (0.6 + 0.4*pulse) * fade)
+	drawCircle(pixels, w, h, 22, h/2, int(dotRadius+2), o.r, o.g, o.b, midA)
+	// Core dot
+	coreA := byte(float64(255) * (0.8 + 0.2*pulse) * fade)
+	drawCircle(pixels, w, h, 22, h/2, int(dotRadius), o.r, o.g, o.b, coreA)
+
+	// Audio waveform bars — 5 bars simulating voice input
+	barX := 40
+	barSpacing := 5
+	barWidth := 3
+	numBars := 5
+	for i := 0; i < numBars; i++ {
+		// Each bar has its own phase for organic movement
+		phase := float64(o.animTick)*0.12 + float64(i)*1.3
+		amplitude := 0.3 + 0.7*math.Abs(math.Sin(phase))
+		maxBarH := 16.0
+		barH := int(maxBarH * amplitude)
+		if barH < 3 {
+			barH = 3
+		}
+
+		bx := barX + i*(barWidth+barSpacing)
+		by := h/2 - barH/2
+
+		barA := byte(float64(200) * (0.6 + 0.4*amplitude) * fade)
+		drawRoundedRect(pixels, w, h, bx, by, barWidth, barH, 1, o.r, o.g, o.b, barA)
+	}
+
+	// "Listening..." text
+	drawTextGDI(pixels, w, h, o.status, memDC, 78, 0, w-65, h, 0xE0, 0xE0, 0xE8, fade)
+
+	// Timer on the right
+	elapsed := time.Since(o.startTime)
+	secs := int(elapsed.Seconds())
+	timerStr := fmt.Sprintf("%d:%02d", secs/60, secs%60)
+	drawTextGDI(pixels, w, h, timerStr, memDC, w-58, 0, w-12, h, 0x88, 0x88, 0x99, fade)
+}
+
+func (o *Overlay) drawTranscribingState(pixels *[1 << 25]byte, w, h int, fade float64, memDC uintptr) {
+	// Orbiting dots — 3 dots rotating in a circle
+	cx, cy := 22, h/2
+	for i := 0; i < 3; i++ {
+		angle := float64(o.animTick)*0.08 + float64(i)*2.094 // 120 degrees apart
+		radius := 5.0
+		dx := int(math.Cos(angle) * radius)
+		dy := int(math.Sin(angle) * radius)
+
+		// Size varies with position
+		dotSize := 2.0 + 0.8*math.Sin(angle+float64(o.animTick)*0.08)
+		alpha := byte(float64(220) * (0.5 + 0.5*math.Sin(angle)) * fade)
+		drawCircle(pixels, w, h, cx+dx, cy+dy, int(dotSize), o.r, o.g, o.b, alpha)
+	}
+
+	// Center dot (amber, steady)
+	centerA := byte(float64(140) * fade)
+	drawCircle(pixels, w, h, cx, cy, 2, o.r, o.g, o.b, centerA)
+
+	// "Processing..." with animated ellipsis
+	dots := int(o.animTick/15) % 4
+	text := "Processing" + []string{"", ".", "..", "..."}[dots]
+	drawTextGDI(pixels, w, h, text, memDC, 40, 0, w-12, h, 0xE0, 0xE0, 0xE8, fade)
+}
+
+func (o *Overlay) drawSuccessState(pixels *[1 << 25]byte, w, h int, fade float64, memDC uintptr) {
+	// Green circle with checkmark
+	circleA := byte(float64(255) * fade)
+	drawCircle(pixels, w, h, 22, h/2, 7, o.r, o.g, o.b, circleA)
+
+	// Soft glow
+	glowA := byte(float64(40) * fade)
+	drawCircle(pixels, w, h, 22, h/2, 11, o.r, o.g, o.b, glowA)
+
+	// Checkmark
+	checkA := byte(float64(255) * fade)
+	drawCheck(pixels, w, h, 18, h/2-2, 255, 255, 255, checkA)
+
+	// Success text
+	drawTextGDI(pixels, w, h, o.status, memDC, 40, 0, w-12, h, 0xE0, 0xE0, 0xE8, fade)
+}
+
+func (o *Overlay) drawErrorState(pixels *[1 << 25]byte, w, h int, fade float64, memDC uintptr) {
+	// Red circle with X
+	circleA := byte(float64(255) * fade)
+	drawCircle(pixels, w, h, 22, h/2, 7, o.r, o.g, o.b, circleA)
+
+	// X mark
+	xA := byte(float64(255) * fade)
+	drawX(pixels, w, h, 22, h/2, 255, 255, 255, xA)
+
+	// Error text
+	drawTextGDI(pixels, w, h, o.status, memDC, 40, 0, w-12, h, 0xE0, 0xE0, 0xE8, fade)
+}
+
+func (o *Overlay) drawReadyState(pixels *[1 << 25]byte, w, h int, fade float64, memDC uintptr) {
+	// Purple dot
+	dotA := byte(float64(200) * fade)
+	drawCircle(pixels, w, h, 22, h/2, 5, o.r, o.g, o.b, dotA)
+
+	// Glow
+	glowA := byte(float64(50) * fade)
+	drawCircle(pixels, w, h, 22, h/2, 9, o.r, o.g, o.b, glowA)
+
+	// Ready text
+	drawTextGDI(pixels, w, h, o.status, memDC, 40, 0, w-12, h, 0xCC, 0xCC, 0xDD, fade)
+}
+
 // ── Drawing primitives ──
 
+func isInsideRoundedRect(px, py, w, h, r float64) bool {
+	return roundedRectDist(px, py, w, h, r) < -0.5
+}
+
 func drawCircle(px *[1 << 25]byte, w, h, cx, cy, radius int, r, g, b byte, alpha byte) {
+	if alpha == 0 {
+		return
+	}
 	fr := float64(radius)
-	for y := max(0, cy-radius-2); y < min(h, cy+radius+2); y++ {
-		for x := max(0, cx-radius-2); x < min(w, cx+radius+2); x++ {
+	for y := clamp(cy-radius-2, 0, h-1); y <= clamp(cy+radius+2, 0, h-1); y++ {
+		for x := clamp(cx-radius-2, 0, w-1); x <= clamp(cx+radius+2, 0, w-1); x++ {
 			dx := float64(x) - float64(cx)
 			dy := float64(y) - float64(cy)
 			dist := math.Sqrt(dx*dx+dy*dy) - fr
 			if dist < -1.0 {
-				blendPixel(px, w, x, y, r, g, b, alpha)
+				blendPixel(px, w, h, x, y, r, g, b, alpha)
 			} else if dist < 1.0 {
 				a := byte(float64(alpha) * (1.0 - (dist+1.0)/2.0))
-				blendPixel(px, w, x, y, r, g, b, a)
+				blendPixel(px, w, h, x, y, r, g, b, a)
 			}
 		}
 	}
 }
 
 func drawRoundedRect(px *[1 << 25]byte, w, h, rx, ry, rw, rh, radius int, cr, cg, cb byte, alpha byte) {
+	if alpha == 0 {
+		return
+	}
 	rad := float64(radius)
 	for y := ry; y < ry+rh && y < h; y++ {
 		for x := rx; x < rx+rw && x < w; x++ {
@@ -509,16 +657,19 @@ func drawRoundedRect(px *[1 << 25]byte, w, h, rx, ry, rw, rh, radius int, cr, cg
 			fh := float64(rh)
 			dist := roundedRectDist(lx, ly, fw, fh, rad)
 			if dist < -1.0 {
-				blendPixel(px, w, x, y, cr, cg, cb, alpha)
+				blendPixel(px, w, h, x, y, cr, cg, cb, alpha)
 			} else if dist < 1.0 {
 				a := byte(float64(alpha) * (1.0 - (dist+1.0)/2.0))
-				blendPixel(px, w, x, y, cr, cg, cb, a)
+				blendPixel(px, w, h, x, y, cr, cg, cb, a)
 			}
 		}
 	}
 }
 
 func drawRoundedRectBorder(px *[1 << 25]byte, w, h, rx, ry, rw, rh, radius int, cr, cg, cb byte, alpha byte) {
+	if alpha == 0 {
+		return
+	}
 	rad := float64(radius)
 	for y := ry; y < ry+rh && y < h; y++ {
 		for x := rx; x < rx+rw && x < w; x++ {
@@ -531,7 +682,7 @@ func drawRoundedRectBorder(px *[1 << 25]byte, w, h, rx, ry, rw, rh, radius int, 
 				t := 1.0 - math.Abs(dist+0.5)
 				if t > 0 {
 					a := byte(float64(alpha) * t)
-					blendPixel(px, w, x, y, cr, cg, cb, a)
+					blendPixel(px, w, h, x, y, cr, cg, cb, a)
 				}
 			}
 		}
@@ -548,29 +699,38 @@ func roundedRectDist(px, py, w, h, r float64) float64 {
 	return outside + inside
 }
 
-func drawCheck(px *[1 << 25]byte, stride, x, y int, r, g, b, a byte) {
-	// Simple checkmark: ✓
+func drawCheck(px *[1 << 25]byte, stride, h, x, y int, r, g, b, a byte) {
+	// Thicker checkmark with antialiasing
 	pts := [][2]int{
-		{x, y + 1}, {x + 1, y + 2}, {x + 2, y + 3},
-		{x + 3, y + 2}, {x + 4, y + 1}, {x + 5, y},
+		{x, y + 2}, {x + 1, y + 3}, {x + 2, y + 4},
+		{x + 3, y + 3}, {x + 4, y + 2}, {x + 5, y + 1}, {x + 6, y},
 	}
 	for _, p := range pts {
-		setPixel(px, stride, p[0], p[1], r, g, b, a)
-		if p[1]+1 < 40 {
-			setPixel(px, stride, p[0], p[1]+1, r, g, b, byte(float64(a)*0.5))
+		setPixel(px, stride, h, p[0], p[1], r, g, b, a)
+		// Thickness: draw pixel above and below
+		if p[1]-1 >= 0 {
+			setPixel(px, stride, h, p[0], p[1]-1, r, g, b, byte(float64(a)*0.4))
+		}
+		if p[1]+1 < h {
+			setPixel(px, stride, h, p[0], p[1]+1, r, g, b, byte(float64(a)*0.4))
 		}
 	}
 }
 
-func drawX(px *[1 << 25]byte, stride, cx, cy int, r, g, b, a byte) {
-	for i := -2; i <= 2; i++ {
-		setPixel(px, stride, cx+i, cy+i, r, g, b, a)
-		setPixel(px, stride, cx+i, cy-i, r, g, b, a)
+func drawX(px *[1 << 25]byte, stride, h, cx, cy int, r, g, b, a byte) {
+	for i := -3; i <= 3; i++ {
+		setPixel(px, stride, h, cx+i, cy+i, r, g, b, a)
+		setPixel(px, stride, h, cx+i, cy-i, r, g, b, a)
+		// Slight thickness
+		if i > -3 && i < 3 {
+			setPixel(px, stride, h, cx+i+1, cy+i, r, g, b, byte(float64(a)*0.3))
+			setPixel(px, stride, h, cx+i+1, cy-i, r, g, b, byte(float64(a)*0.3))
+		}
 	}
 }
 
-func setPixel(px *[1 << 25]byte, stride, x, y int, r, g, b, a byte) {
-	if x < 0 || y < 0 || x >= stride || y >= 40 {
+func setPixel(px *[1 << 25]byte, stride, h, x, y int, r, g, b, a byte) {
+	if x < 0 || y < 0 || x >= stride || y >= h {
 		return
 	}
 	off := (y*stride + x) * 4
@@ -581,13 +741,13 @@ func setPixel(px *[1 << 25]byte, stride, x, y int, r, g, b, a byte) {
 	px[off+3] = a
 }
 
-func blendPixel(px *[1 << 25]byte, stride, x, y int, r, g, b, a byte) {
-	if x < 0 || y < 0 || x >= stride || y >= 40 {
+func blendPixel(px *[1 << 25]byte, stride, h, x, y int, r, g, b, a byte) {
+	if x < 0 || y < 0 || x >= stride || y >= h || a == 0 {
 		return
 	}
 	off := (y*stride + x) * 4
 	if px[off+3] == 0 {
-		setPixel(px, stride, x, y, r, g, b, a)
+		setPixel(px, stride, h, x, y, r, g, b, a)
 		return
 	}
 	fa := float64(a) / 255.0
@@ -603,7 +763,11 @@ func blendPixel(px *[1 << 25]byte, stride, x, y int, r, g, b, a byte) {
 }
 
 // drawTextGDI renders text into pixel buffer using GDI with proper alpha compositing.
-func drawTextGDI(px *[1 << 25]byte, w, h int, text string, _ uintptr, left, top, right, bottom int, tr, tg, tb byte) {
+func drawTextGDI(px *[1 << 25]byte, w, h int, text string, _ uintptr, left, top, right, bottom int, tr, tg, tb byte, fade float64) {
+	if text == "" || fade <= 0 {
+		return
+	}
+
 	screenDC, _, _ := pGetDC.Call(0)
 	memDC2, _, _ := pCreateCompatibleDC.Call(screenDC)
 
@@ -626,19 +790,20 @@ func drawTextGDI(px *[1 << 25]byte, w, h int, text string, _ uintptr, left, top,
 	pSetBkMode.Call(memDC2, TRANSPARENT)
 	pSetTextColor.Call(memDC2, 0x00FFFFFF)
 
-	fontName, _ := syscall.UTF16PtrFromString("Segoe UI Semibold")
+	fontName, _ := syscall.UTF16PtrFromString("Segoe UI Variable")
 	font, _, _ := pCreateFont.Call(
-		uintptr(^uint32(14)+1), 0, 0, 0, 600, 0, 0, 0, 0, 0, 0, 5, 0,
+		uintptr(^uint32(15)+1), 0, 0, 0, 400, 0, 0, 0, 0, 0, 0, 5, 0,
 		uintptr(unsafe.Pointer(fontName)),
 	)
-	pSelectObject.Call(memDC2, font)
+	oldFont, _, _ := pSelectObject.Call(memDC2, font)
 
+	// Fallback to Segoe UI if Variable isn't available
 	textStr, _ := syscall.UTF16PtrFromString(text)
 	textRect := RECT{int32(left), int32(top), int32(right), int32(bottom)}
 	pDrawText.Call(memDC2, uintptr(unsafe.Pointer(textStr)), ^uintptr(0),
 		uintptr(unsafe.Pointer(&textRect)), DT_SINGLELINE|DT_VCENTER)
 
-	// Composite: use brightness as alpha
+	// Composite: use brightness as alpha, apply fade
 	for y := 0; y < h; y++ {
 		for x := left; x < right && x < w; x++ {
 			off := (y*w + x) * 4
@@ -653,27 +818,25 @@ func drawTextGDI(px *[1 << 25]byte, w, h int, text string, _ uintptr, left, top,
 				mx = b
 			}
 			if mx > 10 {
-				blendPixel(px, w, x, y, tr, tg, tb, mx)
+				a := byte(float64(mx) * fade)
+				blendPixel(px, w, h, x, y, tr, tg, tb, a)
 			}
 		}
 	}
 
+	pSelectObject.Call(memDC2, oldFont)
 	pDeleteObject.Call(font)
 	pDeleteObject.Call(textBmp)
 	pDeleteDC.Call(memDC2)
 	pReleaseDC.Call(0, screenDC)
 }
 
-func max(a, b int) int {
-	if a > b {
-		return a
+func clamp(v, lo, hi int) int {
+	if v < lo {
+		return lo
 	}
-	return b
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
+	if v > hi {
+		return hi
 	}
-	return b
+	return v
 }

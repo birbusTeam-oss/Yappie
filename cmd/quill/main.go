@@ -38,7 +38,7 @@ func main() {
 	}
 	log.Println("─────────────────────────────────────")
 	log.Println("Yappie starting...")
-	log.Printf("Version: 2.0.0 | PID: %d", os.Getpid())
+	log.Printf("Version: 3.0.0 | PID: %d", os.Getpid())
 
 	// Load config
 	cfg, err := config.Load()

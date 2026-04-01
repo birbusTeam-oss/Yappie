@@ -104,7 +104,7 @@ func (t *Tray) Run(onReady func()) {
 		systray.SetIcon(yappieIcon)
 
 		// ── Status ──
-		t.statusItem = systray.AddMenuItem("⚡ Ready — Hold "+t.hotkey, "Current status")
+		t.statusItem = systray.AddMenuItem("⚡ Ready — Hold "+t.hotkey+" to dictate", "Current status")
 		t.statusItem.Disable()
 
 		t.statsItem = systray.AddMenuItem("    No dictations yet", "Session statistics")
@@ -125,7 +125,7 @@ func (t *Tray) Run(onReady func()) {
 		systray.AddSeparator()
 
 		// ── About / Quit ──
-		mAbout := systray.AddMenuItem("ℹ️ About Yappie", "Version info")
+		mAbout := systray.AddMenuItem("ℹ️ Yappie v3.0 — Free & Offline", "Version info")
 		mAbout.Disable()
 
 		mQuit := systray.AddMenuItem("✖ Quit Yappie", "Exit application")
@@ -214,7 +214,7 @@ func (t *Tray) SetStatus(s Status) {
 		systray.SetIcon(yappieIcon)
 		systray.SetTooltip("Yappie — Ready (Hold " + t.hotkey + " to dictate)")
 		if t.statusItem != nil {
-			t.statusItem.SetTitle("⚡ Ready — Hold " + t.hotkey)
+			t.statusItem.SetTitle("⚡ Ready — Hold " + t.hotkey + " to dictate")
 		}
 	}
 }
