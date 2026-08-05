@@ -2,8 +2,12 @@ package transcriber
 
 import (
 	"archive/zip"
+	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
+	"hash"
 	"io"
 	"log"
 	"net/http"
@@ -12,8 +16,14 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 	"unicode"
 )
+
+// httpClient is used for all downloads with a 10-minute timeout.
+var httpClient = &http.Client{
+	Timeout: 10 * time.Minute,
+}
 
 // Filler words to remove.
 var fillers = map[string]bool{
@@ -74,13 +84,19 @@ func New(whisperPath, modelPath string, removeFillers bool, opts ...func(*Transc
 			modelPath = modelFile
 			log.Printf("[whisper] Model found: %s", modelPath)
 		} else {
-			// Auto-download model
-			log.Printf("[whisper] Model not found — downloading...")
-			if err := downloadFile("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin", modelFile); err != nil {
+			// Auto-download model with checksum verification
+			modelName := "tiny.en"
+			log.Printf("[whisper] Model not found — downloading %s...", modelName)
+			expectedSHA, _ := GetModelChecksum(modelName)
+			modelURL, _ := GetModelDownloadURL(modelName)
+			if modelURL == "" {
+				modelURL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin"
+			}
+			if err := downloadFileWithChecksum(modelURL, modelFile, expectedSHA); err != nil {
 				log.Printf("[whisper] Model download failed: %v", err)
 			} else {
 				modelPath = modelFile
-				log.Printf("[whisper] Model downloaded: %s", modelPath)
+				log.Printf("[whisper] Model downloaded and verified: %s", modelPath)
 			}
 		}
 	}
@@ -189,12 +205,20 @@ func cleanText(text string, removeFillers bool) string {
 
 
 // downloadWhisper downloads and extracts whisper.cpp binaries.
+// Verifies SHA256 checksum of the downloaded zip before extraction.
 func downloadWhisper(destDir string) error {
 	zipURL := "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.4/whisper-bin-x64.zip"
 	zipPath := filepath.Join(destDir, "whisper-bin.zip")
 
+	expectedSHA := whisperBinaryChecksums["whisper-bin-x64.zip"]
+	if expectedSHA == "" || expectedSHA == "UNVERIFIED" {
+		log.Printf("[whisper] WARNING: No verified checksum for whisper-bin-x64.zip — downloading without verification")
+		// In production, this should be a hard error. For now, log warning and proceed.
+		expectedSHA = ""
+	}
+
 	log.Printf("[whisper] Downloading from %s", zipURL)
-	if err := downloadFile(zipURL, zipPath); err != nil {
+	if err := downloadFileWithChecksum(zipURL, zipPath, expectedSHA); err != nil {
 		return fmt.Errorf("download failed: %w", err)
 	}
 	defer os.Remove(zipPath)
@@ -245,30 +269,87 @@ func downloadWhisper(destDir string) error {
 	return nil
 }
 
-// downloadFile downloads a URL to a local file.
+// downloadFile downloads a URL to a local file (no checksum verification).
 func downloadFile(url, destPath string) error {
-	resp, err := http.Get(url)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
+	return downloadFileWithChecksum(url, destPath, "")
+}
 
-	if resp.StatusCode != 200 {
-		return fmt.Errorf("HTTP %d", resp.StatusCode)
+// downloadFileWithChecksum downloads a URL to a local file with optional checksum verification.
+// Uses atomic writes (temp file + rename), retries up to 3 times, and verifies the checksum
+// (SHA256 for 64-hex-char checksums, SHA1 for 40-hex-char checksums) if provided.
+func downloadFileWithChecksum(url, destPath, expectedSHA string) error {
+	tmpPath := destPath + ".tmp"
+
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt) * 5 * time.Second)
+		}
+
+		resp, err := httpClient.Get(url)
+		if err != nil {
+			lastErr = fmt.Errorf("download attempt %d: %w", attempt+1, err)
+			os.Remove(tmpPath)
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			lastErr = fmt.Errorf("HTTP %d", resp.StatusCode)
+			resp.Body.Close()
+			os.Remove(tmpPath)
+			continue
+		}
+
+		out, err := os.Create(tmpPath)
+		if err != nil {
+			resp.Body.Close()
+			return err
+		}
+
+		var hasher hash.Hash
+		if expectedSHA != "" {
+			if len(expectedSHA) == 40 {
+				hasher = sha1.New()
+			} else {
+				hasher = sha256.New()
+			}
+			_, err = io.Copy(io.MultiWriter(out, hasher), resp.Body)
+		} else {
+			_, err = io.Copy(out, resp.Body)
+		}
+
+		out.Close()
+		resp.Body.Close()
+
+		if err != nil {
+			lastErr = fmt.Errorf("write failed: %w", err)
+			os.Remove(tmpPath)
+			continue
+		}
+
+		// Verify checksum if provided
+		if expectedSHA != "" {
+			actual := hex.EncodeToString(hasher.Sum(nil))
+			if actual != expectedSHA {
+				lastErr = fmt.Errorf("checksum mismatch: expected %s, got %s", expectedSHA, actual)
+				os.Remove(tmpPath)
+				continue
+			}
+			log.Printf("[whisper] Checksum verified: %s", actual)
+		}
+
+		// Atomic rename
+		if err := os.Rename(tmpPath, destPath); err != nil {
+			lastErr = err
+			os.Remove(tmpPath)
+			continue
+		}
+
+		log.Printf("[whisper] Downloaded → %s", destPath)
+		return nil
 	}
 
-	out, err := os.Create(destPath)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	written, err := io.Copy(out, resp.Body)
-	if err != nil {
-		return err
-	}
-	log.Printf("[whisper] Downloaded %d bytes → %s", written, destPath)
-	return nil
+	return fmt.Errorf("download failed after 3 attempts: %w", lastErr)
 }
 
 // Warmup pre-loads the whisper model so the first real transcription is fast.

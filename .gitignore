@@ -1,7 +1,34 @@
+# Build artifacts
 *.exe
+*.exe~
+*.dll
+*.so
+*.dylib
 *.zip
 *.bin
 *.syso
 *.log
+
+# Test artifacts
+coverage.out
+coverage.html
+*.tmp
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# License private key (NEVER commit)
+internal/license/license_private.pem
+
+# GoReleaser
+dist/
 release/
-*.syso
+
+# Research/notes (not source)
+research/
