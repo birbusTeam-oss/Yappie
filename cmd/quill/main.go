@@ -15,6 +15,7 @@ import (
 	"github.com/birbusTeam-oss/Yappie/internal/history"
 	"github.com/birbusTeam-oss/Yappie/internal/hotkey"
 	"github.com/birbusTeam-oss/Yappie/internal/injector"
+	"github.com/birbusTeam-oss/Yappie/internal/license"
 	"github.com/birbusTeam-oss/Yappie/internal/overlay"
 	"github.com/birbusTeam-oss/Yappie/internal/snippets"
 	"github.com/birbusTeam-oss/Yappie/internal/transcriber"
@@ -48,6 +49,21 @@ func main() {
 	log.Printf("Config loaded — hotkey=%s, fillers=%v, logging=%v",
 		cfg.GetHotkey(), cfg.RemoveFillers, cfg.LogTranscriptions)
 
+	// Initialize license manager (singleton, loads cached license from disk)
+	licMgr := license.GetManager()
+	if licMgr.IsPro() {
+		lic := licMgr.GetLicense()
+		log.Printf("License: Pro (plan=%s)", lic.Plan)
+	} else {
+		log.Println("License: Free")
+
+		// Gate multi-language: force English if not Pro
+		if cfg.Language != "en" {
+			log.Printf("Multi-language is a Pro feature — forcing language to 'en' (was '%s')", cfg.Language)
+			cfg.Language = "en"
+		}
+	}
+
 	// Initialize components
 	rec := audio.NewRecorder()
 	trans := transcriber.New(cfg.WhisperPath, cfg.ModelPath, cfg.RemoveFillers, func(t *transcriber.Transcriber) {
@@ -78,7 +94,17 @@ func main() {
 				openFile(logPath)
 			}
 		},
+		OnActivateLicense: func() {
+			openLicenseFile(licMgr, tr)
+		},
 	})
+
+	// Update About menu item to reflect license status
+	if licMgr.IsPro() {
+		tr.SetAboutLabel("ℹ️ Yappie v3.0 — Pro")
+	} else {
+		tr.SetAboutLabel("ℹ️ Yappie v3.0 — Free")
+	}
 
 	// Main event loop: hotkey → record → transcribe → inject
 	var recording bool
@@ -156,8 +182,10 @@ func main() {
 						return
 					}
 
-					// Apply snippet expansion
-					text = snips.Expand(text)
+					// Apply snippet expansion (Pro feature — gated by license)
+					if licMgr.HasFeature("snippets") {
+						text = snips.Expand(text)
+					}
 
 					// Count words
 					wordCount := countWords(text)
@@ -286,4 +314,37 @@ func openFile(path string) {
 	cmd := exec.Command("cmd", "/c", "start", "", path)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 	cmd.Start()
+}
+
+// openLicenseFile opens the license file path for the user to edit/activate.
+// If no license file exists yet, creates a template file with instructions.
+func openLicenseFile(licMgr *license.Manager, tr *tray.Tray) {
+	dataDir, err := config.DataDir()
+	if err != nil {
+		log.Printf("License activation: cannot get data dir: %v", err)
+		return
+	}
+
+	licensePath := filepath.Join(dataDir, "license.json")
+
+	// Check if license file exists — if not, create a template for the user
+	if _, err := os.Stat(licensePath); os.IsNotExist(err) {
+		template := `{
+  "key": "PASTE YOUR LICENSE KEY HERE",
+  "plan": "free",
+  "features": [],
+  "valid": false,
+  "checked": "0001-01-01T00:00:00Z"
+}`
+		os.WriteFile(licensePath, []byte(template), 0644)
+		log.Printf("License activation: created template at %s", licensePath)
+	}
+
+	log.Printf("License activation: opening %s", licensePath)
+	openFile(licensePath)
+
+	// Note: The user edits license.json manually. On next app restart,
+	// the license.Manager will load and validate the key.
+	// A more polished flow could read the key from a dialog and call
+	// licMgr.ValidateKey(key) at runtime.
 }

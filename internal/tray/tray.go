@@ -59,10 +59,11 @@ func (s *SessionStats) Summary() string {
 
 // Callbacks for menu actions
 type MenuCallbacks struct {
-	OnOpenHistory  func()
-	OnOpenConfig   func()
-	OnOpenLogs     func()
-	OnClearHistory func()
+	OnOpenHistory      func()
+	OnOpenConfig       func()
+	OnOpenLogs         func()
+	OnClearHistory     func()
+	OnActivateLicense  func()
 }
 
 // Tray manages the system tray icon and menu.
@@ -75,6 +76,7 @@ type Tray struct {
 
 	statusItem *systray.MenuItem
 	statsItem  *systray.MenuItem
+	aboutItem  *systray.MenuItem
 }
 
 // New creates a tray manager.
@@ -124,9 +126,14 @@ func (t *Tray) Run(onReady func()) {
 
 		systray.AddSeparator()
 
+		// ── License ──
+		mActivateLicense := systray.AddMenuItem("🔑 Activate License", "Open license file to activate Pro")
+
+		systray.AddSeparator()
+
 		// ── About / Quit ──
-		mAbout := systray.AddMenuItem("ℹ️ Yappie v3.0 — Free & Offline", "Version info")
-		mAbout.Disable()
+		t.aboutItem = systray.AddMenuItem("ℹ️ Yappie v3.0 — Free", "Version info")
+		t.aboutItem.Disable()
 
 		mQuit := systray.AddMenuItem("✖ Quit Yappie", "Exit application")
 
@@ -162,6 +169,11 @@ func (t *Tray) Run(onReady func()) {
 				case <-mLogs.ClickedCh:
 					if t.callbacks.OnOpenLogs != nil {
 						t.callbacks.OnOpenLogs()
+					}
+
+				case <-mActivateLicense.ClickedCh:
+					if t.callbacks.OnActivateLicense != nil {
+						t.callbacks.OnActivateLicense()
 					}
 
 				case <-mQuit.ClickedCh:
@@ -222,6 +234,14 @@ func (t *Tray) SetStatus(s Status) {
 // SetLastWordCount stores the word count for display.
 func (t *Tray) SetLastWordCount(n int) {
 	t.lastWords = n
+}
+
+// SetAboutLabel updates the About menu item text to reflect license status.
+// e.g. "ℹ️ Yappie v3.0 — Free" or "ℹ️ Yappie v3.0 — Pro"
+func (t *Tray) SetAboutLabel(label string) {
+	if t.aboutItem != nil {
+		t.aboutItem.SetTitle(label)
+	}
 }
 
 // makeIcon creates a simple colored square ICO.
